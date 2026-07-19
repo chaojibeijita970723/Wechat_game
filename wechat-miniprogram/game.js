@@ -21,6 +21,44 @@ function resize(){
 resize();
 
 /* ============================================================
+   人物头像精灵图
+   生成图按整张设定板加载，再在 Canvas 中按网格裁切；加载失败时继续使用
+   下方的矢量卡通头像，避免弱网或旧版基础库出现空白角色。
+   ============================================================ */
+const PORTRAIT_SHEETS = {
+  players:{src:'assets/images/players-roster-v2.jpg',cols:4,rows:1,crop:.98,rowOffsets:[0]},
+  enemies:{src:'assets/images/enemies-roster-v2.jpg',cols:5,rows:2,crop:.98,rowOffsets:[.04,-.04]},
+  bosses:{src:'assets/images/bosses-roster-v2.jpg',cols:3,rows:2,crop:.98,rowOffsets:[0,0]},
+};
+const PORTRAIT_MAP = {
+  striker:{sheet:'players',col:0,row:0}, defender:{sheet:'players',col:1,row:0},
+  playmaker:{sheet:'players',col:2,row:0}, haaland:{sheet:'players',col:3,row:0},
+  brute:{sheet:'enemies',col:0,row:0}, winger:{sheet:'enemies',col:1,row:0},
+  tackler:{sheet:'enemies',col:2,row:0}, midfielder:{sheet:'enemies',col:3,row:0},
+  keeper:{sheet:'enemies',col:4,row:0}, commander:{sheet:'enemies',col:0,row:1},
+  dribbler:{sheet:'enemies',col:1,row:1}, passer:{sheet:'enemies',col:2,row:1},
+  sweeper:{sheet:'enemies',col:3,row:1}, medic:{sheet:'enemies',col:4,row:1},
+  messi:{sheet:'bosses',col:0,row:0}, ronaldo9:{sheet:'bosses',col:1,row:0},
+  mbappe:{sheet:'bosses',col:2,row:0}, cr7:{sheet:'bosses',col:0,row:1},
+  ronaldinho:{sheet:'bosses',col:1,row:1}, zidane:{sheet:'bosses',col:2,row:1},
+};
+
+function loadPortraitSheets(){
+  for(const sheet of Object.values(PORTRAIT_SHEETS)){
+    sheet.image=null; sheet.loaded=false; sheet.failed=false;
+    try{
+      const image=canvas.createImage ? canvas.createImage() : (typeof Image!=='undefined' ? new Image() : null);
+      if(!image){ sheet.failed=true; continue; }
+      image.onload=()=>{ sheet.loaded=true; sheet.failed=false; };
+      image.onerror=()=>{ sheet.failed=true; sheet.loaded=false; };
+      image.src=sheet.src;
+      sheet.image=image;
+    }catch(err){ sheet.failed=true; }
+  }
+}
+loadPortraitSheets();
+
+/* ============================================================
    视觉Token（球场主题）
    ============================================================ */
 const COL = {
@@ -1583,6 +1621,8 @@ function drawEnemyTypeDetails(e,sx,sy){
     // Boss：金色三尖王冠和红色宝石。
     ctx.fillStyle=COL.bossGold;ctx.beginPath();ctx.moveTo(sx-r*.72,headY-r*.75);ctx.lineTo(sx-r*.5,headY-r*1.2);ctx.lineTo(sx-r*.16,headY-r*.84);ctx.lineTo(sx,headY-r*1.34);ctx.lineTo(sx+r*.18,headY-r*.84);ctx.lineTo(sx+r*.52,headY-r*1.2);ctx.lineTo(sx+r*.72,headY-r*.75);ctx.closePath();ctx.fill();
     ctx.fillStyle=COL.red;ctx.beginPath();ctx.arc(sx,headY-r*.98,r*.11,0,Math.PI*2);ctx.fill();
+  }else if(isPortraitReady(e.kind)){
+    // 精灵图本身已经包含职业装备；这里只保留下面的精英标记和职业标签。
   }else if(e.kind==='brute'){
     // 重装：护肩与粗黑头带。
     ctx.fillStyle='#26343D';ctx.beginPath();ctx.arc(sx-r*.78,sy+r*.46,r*.34,0,Math.PI*2);ctx.arc(sx+r*.78,sy+r*.46,r*.34,0,Math.PI*2);ctx.fill();
@@ -1649,21 +1689,27 @@ function drawEnemies(){
   for(const e of enemies){
     if(!e.active) continue;
     const [sx,sy]=toScreen(e.x,e.y);
+    const portraitStyle=e.boss?(e.bossId||'messi'):(e.kind==='grunt'?'enemy':e.kind);
+    const portraitReady=isPortraitReady(portraitStyle);
     drawEnemyBackdrop(e,sx,sy);
-    drawBigHead(sx,sy,e.r,e.color,e.boss?(e.bossId||'messi'):'enemy');
+    drawBigHead(sx,sy,e.r,e.color,portraitStyle);
     // Canvas 2D 没有精灵 Shader 时，用一层白色轮廓覆盖整个角色；
     // 0.10 秒内以 ease-out 淡出，连脸、头发和球衣都会同时闪白。
     if(e.hitFlash>0){
       const flashAlpha=Math.min(1,e.hitFlash/0.10);
       ctx.save(); ctx.globalAlpha=flashAlpha*.92; ctx.fillStyle='#fff';
-      ctx.beginPath(); ctx.arc(sx,sy-e.r*.28,e.r*.96,0,Math.PI*2); ctx.fill();
-      roundRect(sx-e.r*.74,sy+e.r*.15,e.r*1.48,e.r*.94,e.r*.28); ctx.fill();
+      if(portraitReady){
+        ctx.beginPath();ctx.arc(sx,sy-e.r*.28,e.r*1.08,0,Math.PI*2);ctx.fill();
+      }else{
+        ctx.beginPath(); ctx.arc(sx,sy-e.r*.28,e.r*.96,0,Math.PI*2); ctx.fill();
+        roundRect(sx-e.r*.74,sy+e.r*.15,e.r*1.48,e.r*.94,e.r*.28); ctx.fill();
+      }
       ctx.restore();
     }
     drawEnemyTypeDetails(e,sx,sy);
     ctx.save();
     if(e.boss || e.elite){
-      ctx.beginPath(); ctx.arc(sx,sy-e.r*.28,e.r*1.04,0,Math.PI*2);
+      ctx.beginPath(); ctx.arc(sx,sy-e.r*.28,e.r*(portraitReady?1.11:1.04),0,Math.PI*2);
       ctx.strokeStyle = e.boss ? COL.chalk : COL.eliteRed;
       ctx.lineWidth = e.boss ? 3 : 2.5; ctx.stroke();
     }
@@ -1761,7 +1807,40 @@ function drawFootball(x,y,r){
   ctx.restore();
 }
 
+function isPortraitReady(style){
+  const entry=PORTRAIT_MAP[style],sheet=entry&&PORTRAIT_SHEETS[entry.sheet];
+  return !!(sheet&&sheet.loaded&&sheet.image&&(sheet.image.naturalWidth||sheet.image.width));
+}
+
+function drawPortraitIcon(x,y,r,style){
+  const entry=PORTRAIT_MAP[style],sheet=entry&&PORTRAIT_SHEETS[entry.sheet];
+  if(!sheet||!sheet.loaded||!sheet.image) return false;
+  const image=sheet.image,imageW=image.naturalWidth||image.width,imageH=image.naturalHeight||image.height;
+  if(!imageW||!imageH) return false;
+
+  const cellW=imageW/sheet.cols,cellH=imageH/sheet.rows;
+  const side=Math.min(cellW,cellH)*(sheet.crop||1);
+  const rowOffset=(sheet.rowOffsets&&sheet.rowOffsets[entry.row]||0)*cellH;
+  const sourceX=(entry.col+.5)*cellW-side/2;
+  const sourceY=(entry.row+.5)*cellH+rowOffset-side/2;
+  const iconR=r*1.08,centerY=y-r*.28;
+
+  ctx.save();
+  ctx.beginPath();ctx.arc(x,centerY,iconR,0,Math.PI*2);ctx.clip();
+  ctx.imageSmoothingEnabled=true;
+  if('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality='high';
+  ctx.drawImage(image,sourceX,sourceY,side,side,x-iconR,centerY-iconR,iconR*2,iconR*2);
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle=sheet===PORTRAIT_SHEETS.bosses?COL.bossGold:'rgba(242,240,230,.86)';
+  ctx.lineWidth=Math.max(1.2,r*.08);ctx.beginPath();ctx.arc(x,centerY,iconR,0,Math.PI*2);ctx.stroke();
+  ctx.restore();
+  return true;
+}
+
 function drawBigHead(x,y,r,jersey,style){
+  if(drawPortraitIcon(x,y,r,style)) return;
   const isEnemy=style==='enemy';
   const looks={
     striker:{skin:'#C9825D',hair:'#18181C',accent:'#D7A727',eye:'#241A18',number:'10',faceW:.96},

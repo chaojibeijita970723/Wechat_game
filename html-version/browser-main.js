@@ -14,6 +14,10 @@
   if (!canvas.requestAnimationFrame && global.requestAnimationFrame) {
     canvas.requestAnimationFrame = global.requestAnimationFrame.bind(global);
   }
+  // 与微信小游戏 Canvas.createImage 保持同一接口，让两端共用人物精灵图加载逻辑。
+  if (!canvas.createImage && global.Image) {
+    canvas.createImage = () => new global.Image();
+  }
   const game = api.startGame(canvas);
   const pointers = new Map();
   const makeTouch = event => ({
