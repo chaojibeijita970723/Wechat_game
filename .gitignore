@@ -1,0 +1,7 @@
+__MACOSX/
+*.zip
+fifagame 2.0/
+**/project.private.config.json
+.DS_Store
+Thumbs.db
+

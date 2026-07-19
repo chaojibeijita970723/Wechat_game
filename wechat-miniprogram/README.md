@@ -1,0 +1,8 @@
+# 微信小程序版
+
+使用微信开发者工具导入本目录即可运行。
+
+如果 `project.config.json` 中的 AppID 无权使用，请在导入时替换为自己的 AppID 或测试号。
+
+本目录不包含 `project.private.config.json`，以避免提交个人开发者工具配置。
+

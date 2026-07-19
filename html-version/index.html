@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#0E4B33">
+  <title>无尽球场突围</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%; margin: 0; overflow: hidden;
+      background: #0E4B33; color: #F2F0E6;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      touch-action: none; user-select: none;
+    }
+    #game-canvas { width: 100vw; height: 100vh; display: block; cursor: grab; }
+    #game-canvas:active { cursor: grabbing; }
+    .overlay {
+      position: fixed; left: 50%; z-index: 10; transform: translateX(-50%);
+      padding: 8px 14px; border: 1px solid rgba(242,240,230,.24);
+      border-radius: 999px; background: rgba(4,18,13,.8); pointer-events: none;
+      text-align: center; white-space: nowrap;
+    }
+    #loading { top: 45%; font-weight: 700; }
+    #hint { bottom: max(18px, env(safe-area-inset-bottom)); font-size: 12px; opacity: .78; transition: opacity .6s; }
+    #hint.hidden { opacity: 0; }
+  </style>
+</head>
+<body>
+  <canvas id="game-canvas" aria-label="无尽球场突围游戏画面"></canvas>
+  <div id="loading" class="overlay">球场加载中…</div>
+  <div id="hint" class="overlay">按住鼠标或触摸拖动，即可控制球员走位</div>
+  <script src="browser-wx.js"></script>
+  <script src="game.js"></script>
+  <script src="browser-main.js"></script>
+</body>
+</html>
+
