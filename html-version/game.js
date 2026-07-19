@@ -145,7 +145,8 @@ const bullets = makePool(MAX_BULLETS, ()=>({x:0,y:0,vx:0,vy:0,r:5,dmg:0,pierce:0
 const enemies = makePool(MAX_ENEMIES, ()=>({x:0,y:0,r:14,hp:0,maxhp:0,speed:0,color:'#888',
   contactDmg:0,expVal:1,elite:false,boss:false,affix:null,stunT:0,slowT:0,hitFlash:0,
   bossTimer:0,fused:false,kx:0,ky:0,knockT:0,knockDuration:0,orbitHitT:0,chargeHitId:0,
-  kind:'grunt',aiTimer:0,aiState:'chase',aiAngle:0,aiPhase:0,shieldActive:false,commandBuffT:0}));
+  kind:'grunt',aiTimer:0,aiState:'chase',aiAngle:0,aiPhase:0,shieldActive:false,commandBuffT:0,
+  bossId:'',bossName:''}));
 const orbs = makePool(MAX_ORBS, ()=>({x:0,y:0,r:5,value:1}));
 const particles = makePool(MAX_PARTICLES, ()=>({x:0,y:0,vx:0,vy:0,life:0,maxlife:0,color:COL.chalk,r:2}));
 const damageTexts = makePool(MAX_DAMAGE_TEXTS, ()=>({x:0,y:0,vx:0,vy:0,value:0,life:0,maxlife:0,crit:false}));
@@ -410,6 +411,18 @@ function resumeGame(){
    ============================================================ */
 const JERSEY_COLORS = ['#C0392B','#E67E22','#8E44AD','#2C3E50','#16A085'];
 
+// 每 5 阵轮换一名传奇 Boss；超过第 30 阵后从梅西重新循环，并继续沿用波次成长。
+const BOSS_LEGENDS = [
+  {id:'messi',name:'传奇大师 · 梅西',shortName:'梅西',number:'10',jersey:'#3C70B5',accent:'#7A4ED1',pattern:'curve',hpMul:.9,speedMul:1.12,dmgMul:.95,sizeMul:.92},
+  {id:'ronaldo9',name:'外星人 · 罗纳尔多',shortName:'罗纳尔多',number:'9',jersey:'#E7C62F',accent:'#36A15B',pattern:'power',hpMul:1.18,speedMul:.96,dmgMul:1.18,sizeMul:1.08},
+  {id:'mbappe',name:'闪电前锋 · 姆巴佩',shortName:'姆巴佩',number:'10',jersey:'#244E9B',accent:'#62E7FF',pattern:'speed',hpMul:.94,speedMul:1.35,dmgMul:1.02,sizeMul:.94},
+  {id:'cr7',name:'禁区王者 · C罗',shortName:'C罗',number:'7',jersey:'#B5233A',accent:'#F2F0E6',pattern:'air',hpMul:1.08,speedMul:1.12,dmgMul:1.2,sizeMul:1.04},
+  {id:'ronaldinho',name:'足球精灵 · 罗纳尔迪尼奥',shortName:'小罗',number:'10',jersey:'#E5BD2F',accent:'#54C779',pattern:'trick',hpMul:1,speedMul:1.05,dmgMul:1.06,sizeMul:1},
+  {id:'zidane',name:'中场大师 · 齐达内',shortName:'齐达内',number:'10',jersey:'#E8E6DF',accent:'#3C70B5',pattern:'control',hpMul:1.12,speedMul:.92,dmgMul:1.12,sizeMul:1.06},
+];
+function bossProfileForWave(wave){ return BOSS_LEGENDS[(Math.max(1,Math.floor(wave/5))-1)%BOSS_LEGENDS.length]; }
+function bossProfileById(id){ return BOSS_LEGENDS.find(b=>b.id===id)||BOSS_LEGENDS[0]; }
+
 function scaledHP(base, wave){ return base * Math.pow(1.1, wave); }
 function scaledSpeed(base, wave){ return Math.min(base*(1+wave*0.035), base*2.35); }
 function scaledDmg(base, wave){ return base*(1+wave*0.06); }
@@ -445,6 +458,7 @@ function trySpawnEnemy(kind, wave, spawnX, spawnY){
   const x = spawnX===undefined ? p.x + Math.cos(ang)*spawnR : spawnX;
   const y = spawnY===undefined ? p.y + Math.sin(ang)*spawnR : spawnY;
 
+  const bossProfile=kind==='boss'?bossProfileForWave(wave):null;
   let base;
   if(kind==='boss') base = {hp:300, speed:52, dmg:18, r:62, exp:8};
   else if(kind==='brute') base = {hp:55, speed:58, dmg:13, r:21, exp:4};
@@ -453,23 +467,32 @@ function trySpawnEnemy(kind, wave, spawnX, spawnY){
   else if(kind==='midfielder') base = {hp:25, speed:64, dmg:8, r:14, exp:3};
   else if(kind==='keeper') base = {hp:72, speed:48, dmg:11, r:22, exp:5};
   else if(kind==='commander') base = {hp:48, speed:56, dmg:9, r:19, exp:5};
+  else if(kind==='dribbler') base = {hp:22, speed:116, dmg:7, r:13, exp:3};
+  else if(kind==='passer') base = {hp:30, speed:62, dmg:7, r:15, exp:4};
+  else if(kind==='sweeper') base = {hp:68, speed:54, dmg:14, r:21, exp:5};
+  else if(kind==='medic') base = {hp:34, speed:58, dmg:6, r:15, exp:5};
   else base = {hp:18, speed:92, dmg:7, r:13, exp:1};
 
-  slot.x=x; slot.y=y; slot.r=base.r;
-  slot.hp = slot.maxhp = kind==='boss' ? scaledHP(base.hp, wave)*3 : scaledHP(base.hp, wave);
-  slot.speed = scaledSpeed(base.speed, wave);
-  slot.contactDmg = scaledDmg(base.dmg, wave);
+  slot.x=x; slot.y=y; slot.r=base.r*(bossProfile?bossProfile.sizeMul:1);
+  slot.hp = slot.maxhp = kind==='boss' ? scaledHP(base.hp, wave)*3*bossProfile.hpMul : scaledHP(base.hp, wave);
+  slot.speed = scaledSpeed(base.speed, wave)*(bossProfile?bossProfile.speedMul:1);
+  slot.contactDmg = scaledDmg(base.dmg, wave)*(bossProfile?bossProfile.dmgMul:1);
   slot.expVal = base.exp;
-  slot.color = kind==='boss' ? COL.bossGold : pick(JERSEY_COLORS);
+  slot.color = bossProfile ? bossProfile.jersey : pick(JERSEY_COLORS);
   slot.elite = false; slot.affix = null; slot.boss = (kind==='boss');
   slot.stunT=0; slot.slowT=0; slot.hitFlash=0; slot.orbitHitT=0; slot.chargeHitId=0; slot.bossTimer = 1.6; slot.fused=false; slot.kx=0; slot.ky=0; slot.knockT=0; slot.knockDuration=0;
-  slot.kind=kind; slot.aiTimer=rand(.8,1.8); slot.aiState='chase'; slot.aiAngle=0; slot.aiPhase=0; slot.shieldActive=kind==='keeper'; slot.commandBuffT=0;
+  slot.kind=kind; slot.aiTimer=rand(.8,1.8); slot.aiState='chase'; slot.aiAngle=rand(0,Math.PI*2); slot.aiPhase=0; slot.shieldActive=kind==='keeper'; slot.commandBuffT=0;
+  slot.bossId=bossProfile?bossProfile.id:''; slot.bossName=bossProfile?bossProfile.shortName:'';
 
   if(kind==='winger') slot.color='#26A69A';
   else if(kind==='tackler') slot.color='#8E44AD';
   else if(kind==='midfielder') slot.color='#D35400';
   else if(kind==='keeper') slot.color='#F1C40F';
   else if(kind==='commander') slot.color='#34495E';
+  else if(kind==='dribbler') slot.color='#D94FA4';
+  else if(kind==='passer') slot.color='#2EA66B';
+  else if(kind==='sweeper') slot.color='#52616B';
+  else if(kind==='medic') slot.color='#E8E6DF';
 
   // 精英词缀：第10波起
   if(!slot.boss && wave>=6 && Math.random()<0.24){
@@ -481,6 +504,7 @@ function trySpawnEnemy(kind, wave, spawnX, spawnY){
     slot.color = mixColor(slot.color, COL.eliteRed, 0.55);
   }
   slot.active = true;
+  if(slot.boss) GAME.bossRef=slot;
   return true;
 }
 
@@ -506,24 +530,33 @@ function spawnBatch(){
   const formation = w<3 ? 'scatter' : pick(['scatter','line','ring','wedge']);
   const kinds=['grunt'];
   if(w>=3) kinds.push('winger');
+  if(w>=4) kinds.push('dribbler');
   if(w>=5) kinds.push('brute','tackler');
-  if(w>=7) kinds.push('midfielder');
+  if(w>=6) kinds.push('passer');
+  if(w>=7) kinds.push('midfielder','sweeper');
   if(w>=8) kinds.push('keeper');
+  if(w>=9) kinds.push('medic');
   if(w>=10 && Math.random()<.32) kinds.push('commander');
   const kind = pick(kinds);
+  const specials=kinds.filter(k=>k!=='grunt'&&k!=='commander');
+  const squadKind=i=>{
+    if(i===0) return kind;
+    if(w>=5&&i%3===0&&specials.length) return pick(specials);
+    return 'grunt';
+  };
   const p=GAME.player, spawnR=Math.max(W,H)*.62+70, baseA=rand(0,Math.PI*2);
 
   if(formation==='ring'){
     const n=8+Math.min(8,Math.floor(w/2));
     for(let i=0;i<n;i++){
       const a=baseA+i*Math.PI*2/n;
-      if(!trySpawnEnemy(i%4===0 && w>=5?kind:'grunt',w,p.x+Math.cos(a)*spawnR,p.y+Math.sin(a)*spawnR)) break;
+      if(!trySpawnEnemy(w>=5&&i%3===0?squadKind(i):'grunt',w,p.x+Math.cos(a)*spawnR,p.y+Math.sin(a)*spawnR)) break;
     }
   }else if(formation==='line'){
     const n=Math.max(5,count+2), cx=p.x+Math.cos(baseA)*spawnR, cy=p.y+Math.sin(baseA)*spawnR;
     for(let i=0;i<n;i++){
       const off=(i-(n-1)/2)*42;
-      if(!trySpawnEnemy(i===Math.floor(n/2)?kind:'grunt',w,cx+Math.cos(baseA+Math.PI/2)*off,cy+Math.sin(baseA+Math.PI/2)*off)) break;
+      if(!trySpawnEnemy(i===Math.floor(n/2)?kind:squadKind(i),w,cx+Math.cos(baseA+Math.PI/2)*off,cy+Math.sin(baseA+Math.PI/2)*off)) break;
     }
   }else if(formation==='wedge'){
     const n=Math.max(6,count+2);
@@ -532,10 +565,10 @@ function spawnBatch(){
       const forward=row*28, lateral=row*34*side;
       const x=p.x+Math.cos(baseA)*(spawnR+forward)+Math.cos(baseA+Math.PI/2)*lateral;
       const y=p.y+Math.sin(baseA)*(spawnR+forward)+Math.sin(baseA+Math.PI/2)*lateral;
-      if(!trySpawnEnemy(i===0?kind:(w>=4&&i%3===0?'winger':'grunt'),w,x,y)) break;
+      if(!trySpawnEnemy(squadKind(i),w,x,y)) break;
     }
   }else{
-    for(let i=0;i<count;i++) if(!trySpawnEnemy(i===0?kind:'grunt',w)) break;
+    for(let i=0;i<count;i++) if(!trySpawnEnemy(squadKind(i),w)) break;
   }
 }
 
@@ -682,7 +715,7 @@ function updateCharge(dt){
 function applyKnockback(e, fromX, fromY, strength){
   // 速度向量允许与敌人的追击移动自然叠加；指数阻尼在不同帧率下保持一致。
   const a=Math.atan2(e.y-fromY,e.x-fromX);
-  const mass=e.boss ? 3.6 : e.elite ? 1.8 : 1;
+  const mass=e.boss ? 3.6 : e.kind==='sweeper' ? 2.4 : e.elite ? 1.8 : 1;
   e.kx += Math.cos(a)*(strength/mass);
   e.ky += Math.sin(a)*(strength/mass);
   e.knockDuration=e.knockT=Math.max(e.knockT, e.boss ? .09 : .13);
@@ -743,7 +776,7 @@ function killEnemy(e){
   if(e.boss){
     GAME.eliteKills+=3; GAME.bossKills++; GAME.totalBossKills++;
     wx.setStorageSync('wcs_boss_kills',String(GAME.totalBossKills));
-    triggerShake(10,0.4); GAME.hitstopT=0.08; GAME.bossActive=false;
+    triggerShake(10,0.4); GAME.hitstopT=0.08; GAME.bossActive=false; GAME.bossRef=null;
   }
   registerKill(e);
   tryDropPowerup(e);
@@ -758,6 +791,7 @@ function killEnemy(e){
       s.color = e.color; s.elite=false; s.affix=null; s.boss=false;
       s.stunT=0; s.slowT=0; s.hitFlash=0.2; s.orbitHitT=0; s.fused=false; s.kx=0; s.ky=0; s.knockT=0; s.knockDuration=0;
       s.kind='grunt'; s.aiTimer=rand(.8,1.8); s.aiState='chase'; s.aiAngle=0; s.aiPhase=0; s.shieldActive=false; s.commandBuffT=0;
+      s.bossId=''; s.bossName='';
       s.active = true;
     }
   }
@@ -1030,10 +1064,10 @@ function triggerShake(mag, t){
   GAME.shakePhase=Math.random()*Math.PI*2;
 }
 
-function spawnEnemyBall(e,angle,speed,damage,radius){
+function spawnEnemyBall(e,angle,speed,damage,radius,color){
   const b=firstFree(bullets); if(!b) return;
   b.x=e.x; b.y=e.y; b.vx=Math.cos(angle)*speed; b.vy=Math.sin(angle)*speed;
-  b.r=radius||6; b.dmg=damage; b.pierce=0; b.color=COL.red; b.life=3;
+  b.r=radius||6; b.dmg=damage; b.pierce=0; b.color=color||COL.red; b.life=3;
   b.fromPlayer=false; b.homing=false; b.target=null; b.bounce=0; b.lastHit=null;
   b.explode=false; b.explodeChance=0; b.splashRadius=0; b.active=true;
 }
@@ -1048,6 +1082,16 @@ function moveEnemy(e,angle,speed,dt){
 }
 
 function updateBossAI(e,dt,p){
+  const profile=bossProfileById(e.bossId);
+  const styles={
+    curve:{count:12,speed:175,dmg:1,r:6,spread:.17},
+    power:{count:8,speed:158,dmg:1.28,r:9,spread:.13},
+    speed:{count:10,speed:225,dmg:.92,r:5,spread:.12},
+    air:{count:12,speed:188,dmg:1.2,r:8,spread:.15},
+    trick:{count:14,speed:172,dmg:1.04,r:6,spread:.2},
+    control:{count:16,speed:148,dmg:1.08,r:7,spread:.16},
+  };
+  const style=styles[profile.pattern]||styles.curve;
   const hpRatio=e.hp/e.maxhp;
   const phase=hpRatio>.66?1:(hpRatio>.33?2:3);
   const toPlayer=Math.atan2(p.y-e.y,p.x-e.x);
@@ -1056,27 +1100,29 @@ function updateBossAI(e,dt,p){
   if(e.bossTimer>0) return;
   e.aiPhase++;
   if(phase===1){
-    const n=10;
-    for(let i=0;i<n;i++) spawnEnemyBall(e,i*Math.PI*2/n,165,8+GAME.waveNumber*.35,6);
+    const n=style.count,offset=(profile.pattern==='curve'||profile.pattern==='trick')?e.aiPhase*.18:0;
+    for(let i=0;i<n;i++) spawnEnemyBall(e,offset+i*Math.PI*2/n,style.speed,(8+GAME.waveNumber*.35)*style.dmg,style.r,profile.accent);
     e.bossTimer=1.9;
   }else if(phase===2){
     if(e.aiPhase%2===0){
-      for(let i=-2;i<=2;i++) spawnEnemyBall(e,toPlayer+i*.18,235,9+GAME.waveNumber*.38,7);
+      const aimed=profile.pattern==='speed'?7:(profile.pattern==='power'?3:5);
+      for(let i=0;i<aimed;i++) spawnEnemyBall(e,toPlayer+(i-(aimed-1)/2)*style.spread,style.speed*1.38,(9+GAME.waveNumber*.38)*style.dmg,style.r+1,profile.accent);
     }else{
-      const n=12,offset=(e.aiPhase%4)*.16;
-      for(let i=0;i<n;i++) spawnEnemyBall(e,offset+i*Math.PI*2/n,185,8+GAME.waveNumber*.35,6);
+      const n=style.count+2,offset=(e.aiPhase%4)*.16;
+      for(let i=0;i<n;i++) spawnEnemyBall(e,offset+i*Math.PI*2/n,style.speed*1.08,(8+GAME.waveNumber*.35)*style.dmg,style.r,profile.accent);
     }
     e.bossTimer=1.45;
   }else{
-    const n=16,offset=e.aiPhase*.22;
-    for(let i=0;i<n;i++) spawnEnemyBall(e,offset+i*Math.PI*2/n,205,10+GAME.waveNumber*.4,7);
-    for(let i=-1;i<=1;i++) spawnEnemyBall(e,toPlayer+i*.12,285,12+GAME.waveNumber*.42,8);
+    const n=style.count+4,offset=e.aiPhase*.22;
+    for(let i=0;i<n;i++) spawnEnemyBall(e,offset+i*Math.PI*2/n,style.speed*1.18,(10+GAME.waveNumber*.4)*style.dmg,style.r+1,profile.accent);
+    for(let i=-1;i<=1;i++) spawnEnemyBall(e,toPlayer+i*.12,style.speed*1.65,(12+GAME.waveNumber*.42)*style.dmg,style.r+2,profile.accent);
     if(e.aiPhase%3===0){
-      for(let i=0;i<3;i++) trySpawnEnemy(i===0?'tackler':'winger',GAME.waveNumber,e.x+rand(-90,90),e.y+rand(-90,90));
+      const signature={messi:'dribbler',ronaldo9:'sweeper',mbappe:'winger',cr7:'tackler',ronaldinho:'passer',zidane:'commander'}[profile.id]||'winger';
+      for(let i=0;i<3;i++) trySpawnEnemy(i===0?signature:'winger',GAME.waveNumber,e.x+rand(-90,90),e.y+rand(-90,90));
     }
     e.bossTimer=1.15;
   }
-  spawnEffect('bossattack',e.x,e.y,e.r*1.5,.3,COL.red);
+  spawnEffect('bossattack',e.x,e.y,e.r*1.5,.3,profile.accent);
   triggerShake(phase===3?8:5,.2);
 }
 
@@ -1119,6 +1165,32 @@ function updateEnemyAI(e,dt,p){
         if(ally.active&&!ally.boss&&ally!==e&&dist(ally.x,ally.y,e.x,e.y)<170) ally.commandBuffT=3.2;
       }
       spawnEffect('command',e.x,e.y,170,.45,'#62E7FF'); e.aiTimer=2.8;
+    }
+  }else if(e.kind==='dribbler'){
+    e.aiAngle+=dt*5.2;
+    moveEnemy(e,a+Math.sin(e.aiAngle)*.72,e.speed,dt);
+  }else if(e.kind==='passer'){
+    const moveA=d>260?a:(d<170?a+Math.PI:a+Math.PI/2);
+    moveEnemy(e,moveA,e.speed,dt);
+    if(e.aiTimer<=0){
+      for(let i=-1;i<=1;i++) spawnEnemyBall(e,a+i*.18,176,e.contactDmg*.72,5,'#54C779');
+      spawnEffect('pass',e.x,e.y,34,.2,'#54C779');e.aiTimer=2.45;
+    }
+  }else if(e.kind==='sweeper'){
+    moveEnemy(e,a,e.speed,dt);
+    if(e.aiTimer<=0){
+      const radius=92;spawnEffect('sweep',e.x,e.y,radius,.38,'#BFC8CE');
+      if(d<radius+p.r){damagePlayer(e.contactDmg*.55,.25);triggerShake(5,.16);}
+      e.aiTimer=3.1;
+    }
+  }else if(e.kind==='medic'){
+    const moveA=d>245?a:(d<165?a+Math.PI:a+Math.PI/2);
+    moveEnemy(e,moveA,e.speed,dt);
+    if(e.aiTimer<=0){
+      for(const ally of enemies){
+        if(ally.active&&!ally.boss&&dist(ally.x,ally.y,e.x,e.y)<155) ally.hp=Math.min(ally.maxhp,ally.hp+ally.maxhp*.1);
+      }
+      spawnEffect('heal',e.x,e.y,155,.48,'#62E58A');e.aiTimer=3.4;
     }
   }else{
     moveEnemy(e,a,e.speed,dt);
@@ -1322,7 +1394,7 @@ function update(dt){
     // Boss 波：检查Boss是否还存在
     let alive=false;
     for(const e of enemies){ if(e.active && e.boss){ alive=true; break; } }
-    if(!alive) GAME.bossActive = false;
+    if(!alive){ GAME.bossActive = false; GAME.bossRef=null; }
   }
 
   // 死亡判定
@@ -1491,6 +1563,12 @@ function drawEnemyBackdrop(e,sx,sy){
   if(e.kind==='commander'){
     ctx.globalAlpha=.16;ctx.fillStyle='#62E7FF';ctx.beginPath();ctx.arc(sx,sy,170,0,Math.PI*2);ctx.fill();
   }
+  if(e.kind==='dribbler'){
+    ctx.fillStyle='rgba(255,105,195,.5)';for(let i=1;i<=3;i++){ctx.beginPath();ctx.arc(sx-r*(.75+i*.32),sy+Math.sin(e.aiAngle-i)*r*.42,Math.max(1.5,r*.11),0,Math.PI*2);ctx.fill();}
+  }
+  if(e.kind==='medic'){
+    ctx.globalAlpha=.12;ctx.fillStyle='#62E58A';ctx.beginPath();ctx.arc(sx,sy,r*1.7,0,Math.PI*2);ctx.fill();
+  }
   if(e.boss){
     const pulse=1+Math.sin(GAME.gameTime*5)*.08;
     ctx.globalAlpha=.16;ctx.fillStyle=COL.bossGold;ctx.beginPath();ctx.arc(sx,sy,r*1.55*pulse,0,Math.PI*2);ctx.fill();
@@ -1531,6 +1609,25 @@ function drawEnemyTypeDetails(e,sx,sy){
     // 指挥官：蓝色队长帽与 C 字徽章。
     ctx.fillStyle='#62E7FF';ctx.beginPath();ctx.moveTo(sx-r*.72,headY-r*.58);ctx.lineTo(sx+r*.72,headY-r*.58);ctx.lineTo(sx+r*.55,headY-r*.22);ctx.lineTo(sx-r*.55,headY-r*.22);ctx.closePath();ctx.fill();
     ctx.fillStyle='#08222B';ctx.textAlign='center';ctx.font=`bold ${Math.max(8,r*.65)}px sans-serif`;ctx.fillText('C',sx,sy+r*.78);
+  }else if(e.kind==='dribbler'){
+    // 盘带手：粉色卷发、头带和脚边小球。
+    ctx.fillStyle='#FF69C3';for(let i=-2;i<=2;i++){ctx.beginPath();ctx.arc(sx+i*r*.26,headY-r*.66-Math.abs(i)*r*.03,r*.23,0,Math.PI*2);ctx.fill();}
+    ctx.fillStyle='#F2F0E6';roundRect(sx-r*.78,headY-r*.45,r*1.56,r*.12,r*.05);ctx.fill();
+    drawFootball(sx+r*.55,sy+r*.88,Math.max(3,r*.22));
+  }else if(e.kind==='passer'){
+    // 传球手：绿色双镜片和向两侧展开的传球箭头。
+    ctx.strokeStyle='#54C779';ctx.lineWidth=Math.max(1.5,r*.12);ctx.beginPath();ctx.arc(sx-r*.31,headY+r*.04,r*.22,0,Math.PI*2);ctx.arc(sx+r*.31,headY+r*.04,r*.22,0,Math.PI*2);ctx.moveTo(sx-r*.09,headY+r*.04);ctx.lineTo(sx+r*.09,headY+r*.04);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(sx,sy+r*.62);ctx.lineTo(sx-r*.42,sy+r*.42);ctx.moveTo(sx-r*.42,sy+r*.42);ctx.lineTo(sx-r*.3,sy+r*.68);ctx.moveTo(sx,sy+r*.62);ctx.lineTo(sx+r*.42,sy+r*.42);ctx.moveTo(sx+r*.42,sy+r*.42);ctx.lineTo(sx+r*.3,sy+r*.68);ctx.stroke();
+  }else if(e.kind==='sweeper'){
+    // 清道夫：钢灰护额、大盾和加宽肩甲。
+    ctx.fillStyle='#BFC8CE';roundRect(sx-r*.86,headY-r*.56,r*1.72,r*.22,r*.08);ctx.fill();
+    ctx.fillStyle='#38464F';ctx.beginPath();ctx.arc(sx-r*.8,sy+r*.46,r*.36,0,Math.PI*2);ctx.arc(sx+r*.8,sy+r*.46,r*.36,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#E2E8EB';ctx.lineWidth=Math.max(2,r*.14);roundRect(sx+r*.56,sy+r*.08,r*.46,r*.76,r*.15);ctx.stroke();
+  }else if(e.kind==='medic'){
+    // 队医：白色医疗帽和绿色十字标志。
+    ctx.fillStyle='#F2F0E6';ctx.beginPath();ctx.arc(sx,headY-r*.55,r*.68,Math.PI,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#35B86B';ctx.fillRect(sx-r*.08,headY-r*.63,r*.16,r*.42);ctx.fillRect(sx-r*.21,headY-r*.5,r*.42,r*.16);
+    ctx.fillRect(sx-r*.09,sy+r*.42,r*.18,r*.48);ctx.fillRect(sx-r*.24,sy+r*.57,r*.48,r*.18);
   }
 
   if(e.elite&&!e.boss){
@@ -1538,8 +1635,8 @@ function drawEnemyTypeDetails(e,sx,sy){
   }
 
   if(!e.boss&&e.kind!=='grunt'){
-    const labels={brute:'重装',winger:'边锋',tackler:'铲球',midfielder:'远射',keeper:'门将',commander:'队长'};
-    const colors={brute:'#26343D',winger:'#168F91',tackler:'#8E44AD',midfielder:'#D35400',keeper:'#B28A05',commander:'#277D9B'};
+    const labels={brute:'重装',winger:'边锋',tackler:'铲球手',midfielder:'远射中场',keeper:'门将',commander:'指挥官',dribbler:'盘带手',passer:'传球手',sweeper:'清道夫',medic:'队医'};
+    const colors={brute:'#26343D',winger:'#168F91',tackler:'#8E44AD',midfielder:'#D35400',keeper:'#B28A05',commander:'#277D9B',dribbler:'#B73A8A',passer:'#278D58',sweeper:'#52616B',medic:'#26985A'};
     const label=labels[e.kind]||'敌军';ctx.font='bold 9px sans-serif';ctx.textAlign='center';
     const w=ctx.measureText(label).width+10,y=sy+r+8;
     ctx.fillStyle=colors[e.kind]||'#26343D';roundRect(sx-w/2,y,w,15,7);ctx.fill();
@@ -1553,7 +1650,7 @@ function drawEnemies(){
     if(!e.active) continue;
     const [sx,sy]=toScreen(e.x,e.y);
     drawEnemyBackdrop(e,sx,sy);
-    drawBigHead(sx,sy,e.r,e.color,'enemy');
+    drawBigHead(sx,sy,e.r,e.color,e.boss?(e.bossId||'messi'):'enemy');
     // Canvas 2D 没有精灵 Shader 时，用一层白色轮廓覆盖整个角色；
     // 0.10 秒内以 ease-out 淡出，连脸、头发和球衣都会同时闪白。
     if(e.hitFlash>0){
@@ -1586,7 +1683,9 @@ function drawEnemies(){
     }
     if(e.boss){
       const phase=e.hp/e.maxhp>.66?1:(e.hp/e.maxhp>.33?2:3);
-      ctx.fillStyle=COL.bossGold;ctx.font='bold 11px sans-serif';ctx.textAlign='center';ctx.fillText(`PHASE ${phase}`,sx,sy+e.r+19);
+      const profile=bossProfileById(e.bossId);
+      ctx.fillStyle=profile.accent;ctx.font='bold 13px sans-serif';ctx.textAlign='center';ctx.fillText(e.bossName||profile.shortName,sx,sy+e.r+20);
+      ctx.fillStyle=COL.chalk;ctx.font='bold 10px sans-serif';ctx.fillText(`PHASE ${phase}`,sx,sy+e.r+34);
     }
     ctx.restore();
     // 血条
@@ -1669,6 +1768,12 @@ function drawBigHead(x,y,r,jersey,style){
     defender:{skin:'#A86545',hair:'#171516',accent:'#34231E',eye:'#201716',number:'2',faceW:1.0},
     playmaker:{skin:'#F0C5A2',hair:'#8B5B38',accent:'#B47A49',eye:'#35516A',number:'10',faceW:.9},
     haaland:{skin:'#F2C7AA',hair:'#E1C05E',accent:'#F2DC86',eye:'#4F7897',number:'9',faceW:1.04},
+    messi:{skin:'#E8B18A',hair:'#30231F',accent:'#6E4333',eye:'#3C3029',number:'10',faceW:.94},
+    ronaldo9:{skin:'#A96945',hair:'#171516',accent:'#2B201D',eye:'#29201D',number:'9',faceW:1.04},
+    mbappe:{skin:'#8B563C',hair:'#171516',accent:'#2A211E',eye:'#201716',number:'10',faceW:1.02},
+    cr7:{skin:'#C9825D',hair:'#1B191C',accent:'#51332A',eye:'#2A2420',number:'7',faceW:.98},
+    ronaldinho:{skin:'#925B3C',hair:'#1B1718',accent:'#33251F',eye:'#241B18',number:'10',faceW:1},
+    zidane:{skin:'#D7A47F',hair:'#5C493D',accent:'#6E4A3B',eye:'#33485B',number:'10',faceW:1.02},
     enemy:{skin:'#E5B188',hair:'#4B2E27',accent:'#36201D',eye:'#172530',number:'',faceW:1},
   };
   const look=looks[style]||looks.enemy,headR=r*.92,headY=y-r*.28;
@@ -1689,6 +1794,9 @@ function drawBigHead(x,y,r,jersey,style){
   }else if(style==='haaland'){
     ctx.fillStyle=look.hair;ctx.beginPath();ctx.arc(x+headR*.78,headY-headR*.48,headR*.34,0,Math.PI*2);ctx.fill();
     roundRect(x+headR*.72,headY-headR*.46,headR*.28,headR*1.22,headR*.14);ctx.fill();
+  }else if(style==='ronaldinho'){
+    ctx.fillStyle=look.hair;
+    for(let i=-3;i<=3;i++){roundRect(x+i*headR*.23-headR*.08,headY-headR*.3,headR*.16,headR*1.42,headR*.08);ctx.fill();}
   }
 
   // 不同脸宽和肤色建立第一层辨识度。
@@ -1719,6 +1827,29 @@ function drawBigHead(x,y,r,jersey,style){
     ctx.fillStyle=look.hair;ctx.beginPath();ctx.arc(x,headY-headR*.28,headR*.96,Math.PI*.96,Math.PI*2.04);ctx.lineTo(x+headR*.72,headY+headR*.22);ctx.quadraticCurveTo(x+headR*.34,headY-headR*.66,x,headY-headR*.5);ctx.quadraticCurveTo(x-headR*.25,headY-headR*.62,x-headR*.75,headY+headR*.12);ctx.closePath();ctx.fill();
     ctx.strokeStyle=look.accent;ctx.lineWidth=Math.max(1,r*.08);ctx.beginPath();ctx.moveTo(x,headY-headR*.9);ctx.lineTo(x,headY-headR*.42);ctx.stroke();
     ctx.fillStyle='#2E5366';roundRect(x-headR*.76,headY-headR*.52,headR*1.52,headR*.12,headR*.05);ctx.fill();
+  }else if(style==='messi'){
+    // 梅西：短侧分深棕发与整齐短胡须。
+    ctx.fillStyle=look.hair;ctx.beginPath();ctx.arc(x,headY-headR*.28,headR*.94,Math.PI,Math.PI*2);ctx.lineTo(x+headR*.7,headY-headR*.02);ctx.quadraticCurveTo(x+headR*.18,headY-headR*.74,x-headR*.72,headY-headR*.12);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#8C5B3E';ctx.lineWidth=Math.max(1,r*.07);ctx.beginPath();ctx.moveTo(x-headR*.26,headY-headR*.84);ctx.lineTo(x+headR*.1,headY-headR*.72);ctx.stroke();
+  }else if(style==='ronaldo9'){
+    // 罗纳尔多：标志性光头与额前小块短发。
+    ctx.fillStyle=look.hair;ctx.beginPath();ctx.arc(x,headY-headR*.83,headR*.26,Math.PI,Math.PI*2);ctx.lineTo(x+headR*.2,headY-headR*.62);ctx.lineTo(x-headR*.18,headY-headR*.62);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='rgba(35,29,24,.28)';ctx.lineWidth=Math.max(1,r*.05);ctx.beginPath();ctx.arc(x,headY-headR*.08,headR*.82,Math.PI*1.05,Math.PI*1.95);ctx.stroke();
+  }else if(style==='mbappe'){
+    // 姆巴佩：紧贴头皮的黑色短寸。
+    ctx.fillStyle=look.hair;ctx.beginPath();ctx.arc(x,headY-headR*.3,headR*.9,Math.PI,Math.PI*2);ctx.lineTo(x+headR*.7,headY-headR*.1);ctx.quadraticCurveTo(x,headY-headR*.38,x-headR*.7,headY-headR*.1);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#62E7FF';ctx.lineWidth=Math.max(1,r*.07);ctx.beginPath();ctx.moveTo(x-headR*.65,headY-headR*.4);ctx.lineTo(x+headR*.65,headY-headR*.4);ctx.stroke();
+  }else if(style==='cr7'){
+    // C罗：向上定型的黑色尖刺发型。
+    ctx.fillStyle=look.hair;ctx.beginPath();ctx.moveTo(x-headR*.72,headY-headR*.08);ctx.lineTo(x-headR*.62,headY-headR*.74);ctx.lineTo(x-headR*.3,headY-headR*.58);ctx.lineTo(x-headR*.12,headY-headR*1.02);ctx.lineTo(x+headR*.12,headY-headR*.62);ctx.lineTo(x+headR*.42,headY-headR*.96);ctx.lineTo(x+headR*.72,headY-headR*.12);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#D7A727';ctx.lineWidth=Math.max(1,r*.06);ctx.beginPath();ctx.moveTo(x+headR*.18,headY-headR*.84);ctx.lineTo(x+headR*.42,headY-headR*.62);ctx.stroke();
+  }else if(style==='ronaldinho'){
+    // 罗纳尔迪尼奥：长辫、白色发带和宽阔笑容。
+    ctx.fillStyle=look.hair;ctx.beginPath();ctx.arc(x,headY-headR*.28,headR*.94,Math.PI,Math.PI*2);ctx.lineTo(x+headR*.72,headY);ctx.lineTo(x-headR*.72,headY);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#F2F0E6';roundRect(x-headR*.8,headY-headR*.55,headR*1.6,headR*.14,headR*.06);ctx.fill();
+  }else if(style==='zidane'){
+    // 齐达内：光头、两侧短发与下巴短须。
+    ctx.strokeStyle=look.hair;ctx.lineWidth=Math.max(2,r*.12);ctx.beginPath();ctx.arc(x,headY-headR*.02,headR*.84,Math.PI*.82,Math.PI*1.12);ctx.moveTo(x+headR*.84,headY);ctx.arc(x,headY-headR*.02,headR*.84,Math.PI*1.88,Math.PI*2.18);ctx.stroke();
   }
 
   // 眉眼、鼻子和嘴部。
@@ -1728,13 +1859,17 @@ function drawBigHead(x,y,r,jersey,style){
   ctx.fillStyle=look.eye;ctx.beginPath();ctx.arc(x-eyeGap,eyeY+headR*.02,headR*.09,0,Math.PI*2);ctx.arc(x+eyeGap,eyeY+headR*.02,headR*.09,0,Math.PI*2);ctx.fill();
   ctx.strokeStyle='rgba(119,67,54,.72)';ctx.lineWidth=Math.max(1,r*.07);ctx.beginPath();ctx.moveTo(x,headY+headR*.12);ctx.lineTo(x-headR*.06,headY+headR*.27);ctx.lineTo(x+headR*.06,headY+headR*.28);ctx.stroke();
 
-  if(style==='defender'){
+  if(style==='defender'||style==='messi'){
     ctx.fillStyle=look.accent;ctx.globalAlpha=.88;ctx.beginPath();ctx.arc(x,headY+headR*.35,headR*.55,0,Math.PI);ctx.lineTo(x-headR*.52,headY+headR*.24);ctx.quadraticCurveTo(x,headY+headR*.68,x+headR*.52,headY+headR*.24);ctx.closePath();ctx.fill();ctx.globalAlpha=1;
     ctx.strokeStyle='#7B3E34';ctx.beginPath();ctx.arc(x,headY+headR*.36,headR*.22,.18,Math.PI-.18);ctx.stroke();
   }else{
     ctx.strokeStyle='#9E584B';ctx.lineWidth=Math.max(1.2,r*.09);ctx.beginPath();ctx.arc(x,headY+headR*.34,headR*(style==='haaland'?.27:.23),.15,Math.PI-.15);ctx.stroke();
     if(style==='striker'){
       ctx.fillStyle='rgba(40,29,25,.55)';ctx.beginPath();ctx.arc(x,headY+headR*.48,headR*.14,0,Math.PI);ctx.fill();
+    }else if(style==='zidane'){
+      ctx.fillStyle='rgba(74,50,41,.72)';ctx.beginPath();ctx.arc(x,headY+headR*.5,headR*.17,0,Math.PI);ctx.fill();
+    }else if(style==='ronaldo9'||style==='ronaldinho'){
+      ctx.fillStyle='#fff';roundRect(x-headR*.22,headY+headR*.32,headR*.44,headR*.16,headR*.06);ctx.fill();
     }
   }
   ctx.fillStyle='rgba(240,112,110,.25)';ctx.beginPath();ctx.arc(x-headR*.59,headY+headR*.27,headR*.12,0,Math.PI*2);ctx.arc(x+headR*.59,headY+headR*.27,headR*.12,0,Math.PI*2);ctx.fill();
@@ -1835,7 +1970,8 @@ function drawHUD(){
 
   // 阵型（原"波次"）
   ctx.textAlign='center'; ctx.font='bold 18px sans-serif'; ctx.fillStyle=COL.chalk;
-  ctx.fillText(GAME.bossActive?`BOSS · 第 ${GAME.waveNumber} 阵`:`第 ${GAME.waveNumber} 阵`, W/2, 30);
+  const bossTitle=GAME.bossRef&&GAME.bossRef.active?GAME.bossRef.bossName:'';
+  ctx.fillText(GAME.bossActive?`${bossTitle||'传奇 BOSS'} · 第 ${GAME.waveNumber} 阵`:`第 ${GAME.waveNumber} 阵`, W/2, 30);
   ctx.font='12px sans-serif'; ctx.fillStyle='rgba(242,240,230,0.7)';
   ctx.fillText(`${Math.floor(GAME.gameTime)}s`, W/2, 48);
   if(GAME.currentEvent){
