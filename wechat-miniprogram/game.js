@@ -248,7 +248,7 @@ const ACHIEVEMENTS = [
    游戏状态
    ============================================================ */
 const GAME = {
-  state:'select',   // select | playing | levelup | revive | gameover
+  state:'select',   // select | playing | paused | levelup | revive | gameover
   player:null,
   camX:0, camY:0,
   waveNumber:1, waveTimer:0, WAVE_DURATION:18,
@@ -355,13 +355,17 @@ function onTouchStart(e){
   // 微信/iOS 仅允许在用户手势内创建或恢复 AudioContext。
   unlockAudio();
   startBgm();
-  const touch = e.touches[0];
+  // 多指操作时 touches[0] 往往仍是摇杆手指；按钮必须读取本次新增的触点。
+  const started = e.changedTouches && e.changedTouches.length ? e.changedTouches : e.touches;
+  const touch = started && started[0];
   if(!touch) return;
   const x = touch.clientX===undefined ? touch.x : touch.clientX;
   const y = touch.clientY===undefined ? touch.y : touch.clientY;
 
   // 先检测按钮命中（各状态的UI按钮）
-  for(const b of GAME.buttons){
+  // 后绘制的覆盖层按钮优先命中。
+  for(let i=GAME.buttons.length-1;i>=0;i--){
+    const b=GAME.buttons[i];
     if(x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h){
       b.action();
       return;
@@ -384,8 +388,21 @@ function onTouchMove(e){
 }
 function endJoystick(e){
   if(!joystick.active) return;
-  const stillActive = e.touches.some(t=>t.identifier===joystick.pointerId);
+  const touches=Array.from(e.touches||[]);
+  const stillActive = touches.some(t=>t.identifier===joystick.pointerId);
   if(!stillActive){ joystick.active=false; joystick.pointerId=null; }
+}
+
+function clearJoystick(){
+  joystick.active=false; joystick.pointerId=null;
+  joystick.baseX=0; joystick.baseY=0; joystick.curX=0; joystick.curY=0;
+}
+function pauseGame(){
+  if(GAME.state!=='playing') return;
+  clearJoystick(); GAME.state='paused';
+}
+function resumeGame(){
+  if(GAME.state==='paused') GAME.state='playing';
 }
 
 /* ============================================================
@@ -1380,6 +1397,7 @@ function awardCoins(){
 }
 
 function finishRun(){
+  clearJoystick();
   GAME.state = 'gameover';
   const score = computeScore();
   if(score > GAME.best){
@@ -1463,13 +1481,78 @@ function drawPowerups(){
   }
 }
 
+function drawEnemyBackdrop(e,sx,sy){
+  const r=e.r;
+  ctx.save();
+  if(e.kind==='winger'){
+    ctx.strokeStyle='rgba(98,231,255,.62)';ctx.lineWidth=Math.max(1.5,r*.13);
+    for(let i=-1;i<=1;i++){ctx.beginPath();ctx.moveTo(sx-r*1.55,sy+i*r*.38);ctx.lineTo(sx-r*(.86+i*.08),sy+i*r*.25);ctx.stroke();}
+  }
+  if(e.kind==='commander'){
+    ctx.globalAlpha=.16;ctx.fillStyle='#62E7FF';ctx.beginPath();ctx.arc(sx,sy,170,0,Math.PI*2);ctx.fill();
+  }
+  if(e.boss){
+    const pulse=1+Math.sin(GAME.gameTime*5)*.08;
+    ctx.globalAlpha=.16;ctx.fillStyle=COL.bossGold;ctx.beginPath();ctx.arc(sx,sy,r*1.55*pulse,0,Math.PI*2);ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawEnemyTypeDetails(e,sx,sy){
+  const r=e.r,headY=sy-r*.28;
+  ctx.save();
+  if(e.boss){
+    // Boss：金色三尖王冠和红色宝石。
+    ctx.fillStyle=COL.bossGold;ctx.beginPath();ctx.moveTo(sx-r*.72,headY-r*.75);ctx.lineTo(sx-r*.5,headY-r*1.2);ctx.lineTo(sx-r*.16,headY-r*.84);ctx.lineTo(sx,headY-r*1.34);ctx.lineTo(sx+r*.18,headY-r*.84);ctx.lineTo(sx+r*.52,headY-r*1.2);ctx.lineTo(sx+r*.72,headY-r*.75);ctx.closePath();ctx.fill();
+    ctx.fillStyle=COL.red;ctx.beginPath();ctx.arc(sx,headY-r*.98,r*.11,0,Math.PI*2);ctx.fill();
+  }else if(e.kind==='brute'){
+    // 重装：护肩与粗黑头带。
+    ctx.fillStyle='#26343D';ctx.beginPath();ctx.arc(sx-r*.78,sy+r*.46,r*.34,0,Math.PI*2);ctx.arc(sx+r*.78,sy+r*.46,r*.34,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#18242B';roundRect(sx-r*.82,headY-r*.5,r*1.64,r*.24,r*.08);ctx.fill();
+  }else if(e.kind==='winger'){
+    // 边锋：青色流线发带和侧翼标记。
+    ctx.fillStyle='#62E7FF';ctx.beginPath();ctx.moveTo(sx-r*.78,headY-r*.58);ctx.lineTo(sx+r*.92,headY-r*.34);ctx.lineTo(sx+r*.66,headY-r*.08);ctx.lineTo(sx-r*.72,headY-r*.36);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#D8FFFF';ctx.lineWidth=Math.max(1,r*.1);ctx.beginPath();ctx.moveTo(sx+r*.62,sy+r*.34);ctx.lineTo(sx+r*1.03,sy+r*.12);ctx.lineTo(sx+r*.88,sy+r*.5);ctx.stroke();
+  }else if(e.kind==='tackler'){
+    // 铲球手：紫色护头与警示三角。
+    ctx.strokeStyle='#C77DFF';ctx.lineWidth=Math.max(2,r*.18);ctx.beginPath();ctx.arc(sx,headY-r*.08,r*.84,Math.PI*1.08,Math.PI*1.92);ctx.stroke();
+    ctx.fillStyle='#C77DFF';ctx.beginPath();ctx.moveTo(sx,sy+r*.38);ctx.lineTo(sx-r*.2,sy+r*.72);ctx.lineTo(sx+r*.2,sy+r*.72);ctx.closePath();ctx.fill();
+  }else if(e.kind==='midfielder'){
+    // 中场：橙色战术目镜与胸前准星。
+    ctx.strokeStyle='#FF9B45';ctx.lineWidth=Math.max(1.5,r*.12);ctx.beginPath();ctx.arc(sx+r*.32,headY+r*.05,r*.25,0,Math.PI*2);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(sx-r*.68,headY-r*.15);ctx.lineTo(sx+r*.08,headY-r*.02);ctx.stroke();
+    ctx.beginPath();ctx.arc(sx,sy+r*.63,r*.16,0,Math.PI*2);ctx.moveTo(sx-r*.25,sy+r*.63);ctx.lineTo(sx+r*.25,sy+r*.63);ctx.moveTo(sx,sy+r*.38);ctx.lineTo(sx,sy+r*.88);ctx.stroke();
+  }else if(e.kind==='keeper'){
+    // 门将：亮色帽檐和两只白色手套。
+    ctx.fillStyle='#F4C542';ctx.beginPath();ctx.arc(sx,headY-r*.58,r*.66,Math.PI,Math.PI*2);ctx.fill();
+    roundRect(sx-r*.68,headY-r*.54,r*1.36,r*.16,r*.06);ctx.fill();
+    ctx.fillStyle='#F2F0E6';roundRect(sx-r*1.02,sy+r*.22,r*.32,r*.42,r*.1);ctx.fill();roundRect(sx+r*.7,sy+r*.22,r*.32,r*.42,r*.1);ctx.fill();
+  }else if(e.kind==='commander'){
+    // 指挥官：蓝色队长帽与 C 字徽章。
+    ctx.fillStyle='#62E7FF';ctx.beginPath();ctx.moveTo(sx-r*.72,headY-r*.58);ctx.lineTo(sx+r*.72,headY-r*.58);ctx.lineTo(sx+r*.55,headY-r*.22);ctx.lineTo(sx-r*.55,headY-r*.22);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#08222B';ctx.textAlign='center';ctx.font=`bold ${Math.max(8,r*.65)}px sans-serif`;ctx.fillText('C',sx,sy+r*.78);
+  }
+
+  if(e.elite&&!e.boss){
+    ctx.fillStyle=COL.eliteRed;ctx.beginPath();ctx.moveTo(sx+r*.72,headY-r*.72);ctx.lineTo(sx+r*.96,headY-r*.48);ctx.lineTo(sx+r*.72,headY-r*.24);ctx.lineTo(sx+r*.48,headY-r*.48);ctx.closePath();ctx.fill();
+  }
+
+  if(!e.boss&&e.kind!=='grunt'){
+    const labels={brute:'重装',winger:'边锋',tackler:'铲球',midfielder:'远射',keeper:'门将',commander:'队长'};
+    const colors={brute:'#26343D',winger:'#168F91',tackler:'#8E44AD',midfielder:'#D35400',keeper:'#B28A05',commander:'#277D9B'};
+    const label=labels[e.kind]||'敌军';ctx.font='bold 9px sans-serif';ctx.textAlign='center';
+    const w=ctx.measureText(label).width+10,y=sy+r+8;
+    ctx.fillStyle=colors[e.kind]||'#26343D';roundRect(sx-w/2,y,w,15,7);ctx.fill();
+    ctx.fillStyle='#fff';ctx.fillText(label,sx,y+11);
+  }
+  ctx.restore();
+}
+
 function drawEnemies(){
   for(const e of enemies){
     if(!e.active) continue;
     const [sx,sy]=toScreen(e.x,e.y);
-    if(e.kind==='commander'){
-      ctx.save();ctx.globalAlpha=.16;ctx.fillStyle='#62E7FF';ctx.beginPath();ctx.arc(sx,sy,170,0,Math.PI*2);ctx.fill();ctx.restore();
-    }
+    drawEnemyBackdrop(e,sx,sy);
     drawBigHead(sx,sy,e.r,e.color,'enemy');
     // Canvas 2D 没有精灵 Shader 时，用一层白色轮廓覆盖整个角色；
     // 0.10 秒内以 ease-out 淡出，连脸、头发和球衣都会同时闪白。
@@ -1480,6 +1563,7 @@ function drawEnemies(){
       roundRect(sx-e.r*.74,sy+e.r*.15,e.r*1.48,e.r*.94,e.r*.28); ctx.fill();
       ctx.restore();
     }
+    drawEnemyTypeDetails(e,sx,sy);
     ctx.save();
     if(e.boss || e.elite){
       ctx.beginPath(); ctx.arc(sx,sy-e.r*.28,e.r*1.04,0,Math.PI*2);
@@ -1499,10 +1583,6 @@ function drawEnemies(){
     }
     if(e.commandBuffT>0){
       ctx.strokeStyle='#62E7FF';ctx.lineWidth=2;ctx.beginPath();ctx.arc(sx,sy,e.r*1.25,0,Math.PI*2);ctx.stroke();
-    }
-    if(!e.boss&&e.kind!=='grunt'&&e.kind!=='brute'){
-      const marks={winger:'»',tackler:'▲',midfielder:'●',keeper:'▣',commander:'◆'};
-      ctx.fillStyle=COL.chalk;ctx.font='bold 11px sans-serif';ctx.textAlign='center';ctx.fillText(marks[e.kind]||'',sx,sy+e.r+17);
     }
     if(e.boss){
       const phase=e.hp/e.maxhp>.66?1:(e.hp/e.maxhp>.33?2:3);
@@ -1779,13 +1859,19 @@ function drawHUD(){
     ctx.fillText(`获得：${GAME.lastPickupName}`,W/2,H*.18);
   }
 
-  // 右上结束按钮（实时登记触控区域）。
-  const endW=70, endH=32, endX=W-endW-14, endY=13;
-  ctx.fillStyle='rgba(80,20,20,0.86)'; roundRect(endX,endY,endW,endH,10); ctx.fill();
-  ctx.strokeStyle=COL.red; ctx.lineWidth=1.5; roundRect(endX,endY,endW,endH,10); ctx.stroke();
-  ctx.textAlign='center'; ctx.font='bold 12px sans-serif'; ctx.fillStyle=COL.chalk;
-  ctx.fillText('结束游戏', endX+endW/2, endY+21);
-  GAME.buttons.push({x:endX,y:endY,w:endW,h:endH,action:finishRun});
+  // 右上暂停 / 结束按钮。窄屏改为上下排列，并扩大实际触控热区。
+  if(GAME.state==='playing'){
+    const ctlW=60,ctlH=34,gap=10,stacked=W<370;
+    const controls=stacked
+      ? [{x:W-ctlW-12,y:12,label:'暂停',color:'#3C8DBC',action:pauseGame},{x:W-ctlW-12,y:12+ctlH+gap,label:'结束',color:COL.red,action:finishRun}]
+      : [{x:W-ctlW*2-gap-12,y:12,label:'暂停',color:'#3C8DBC',action:pauseGame},{x:W-ctlW-12,y:12,label:'结束',color:COL.red,action:finishRun}];
+    for(const c of controls){
+      ctx.fillStyle='rgba(7,25,27,.9)';roundRect(c.x,c.y,ctlW,ctlH,10);ctx.fill();
+      ctx.strokeStyle=c.color;ctx.lineWidth=1.8;roundRect(c.x,c.y,ctlW,ctlH,10);ctx.stroke();
+      ctx.textAlign='center';ctx.font='bold 12px sans-serif';ctx.fillStyle=COL.chalk;ctx.fillText(c.label,c.x+ctlW/2,c.y+22);
+      GAME.buttons.push({x:c.x-4,y:c.y-4,w:ctlW+8,h:ctlH+8,action:c.action});
+    }
+  }
 
   // 底部士气与经验条
   const ebW = W-32, ebX=16, ebY=H-26;
@@ -1973,6 +2059,21 @@ function drawLevelUpOverlay(){
   });
 }
 
+function drawPauseOverlay(){
+  ctx.fillStyle='rgba(4,10,7,.72)';ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';ctx.fillStyle=COL.chalk;ctx.font='bold 28px sans-serif';
+  ctx.fillText('比赛暂停',W/2,H*.32);
+  ctx.font='13px sans-serif';ctx.fillStyle='rgba(242,240,230,.78)';
+  ctx.fillText('计时、敌人和技能均已暂停',W/2,H*.32+28);
+
+  GAME.buttons=[];
+  const w=Math.min(W-60,300),h=56,x=(W-w)/2,y=H*.44;
+  drawButton(x,y,w,h,'继续比赛','返回球场',COL.hpGreen);
+  GAME.buttons.push({x:x-5,y:y-5,w:w+10,h:h+10,action:resumeGame});
+  drawButton(x,y+h+18,w,h,'结束本局','进入结算',COL.red);
+  GAME.buttons.push({x:x-5,y:y+h+13,w:w+10,h:h+10,action:finishRun});
+}
+
 function drawReviveOverlay(){
   ctx.fillStyle=COL.dim; ctx.fillRect(0,0,W,H);
   ctx.textAlign='center'; ctx.fillStyle=COL.red; ctx.font='bold 24px sans-serif';
@@ -2071,7 +2172,8 @@ function render(){
 
   ctx.restore();
 
-  if(GAME.state==='levelup') drawLevelUpOverlay();
+  if(GAME.state==='paused') drawPauseOverlay();
+  else if(GAME.state==='levelup') drawLevelUpOverlay();
   else if(GAME.state==='revive') drawReviveOverlay();
   else if(GAME.state==='gameover') drawGameOverOverlay();
 }

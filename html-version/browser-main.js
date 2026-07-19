@@ -31,7 +31,7 @@
     pointers.set(event.pointerId, touch);
     if (canvas.setPointerCapture) canvas.setPointerCapture(event.pointerId);
     // 只把本次新增指针交给 touchStart，保证升级卡等按钮可以被第二指针点击。
-    game.touchStart({ touches: [touch] });
+    game.touchStart({ touches: [touch], changedTouches: [touch] });
     hint.classList.add('hidden');
   });
 
